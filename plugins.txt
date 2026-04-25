@@ -1,0 +1,26 @@
+# jenkins-plugin-cli manifest. Format: name:version (#은 주석)
+# Jenkins 2.555.1-lts-jdk21 호환 검증됨. 업데이트: plugins.jenkins.io/api/plugin/<name>
+
+configuration-as-code:2077.v41f1011a_5110
+credentials:1502.v5c95e620ddfe
+credentials-binding:719.v80e905ef14eb_
+plain-credentials:199.v9f8e1f741799
+ssh-credentials:372.va_250881b_08cd
+
+workflow-aggregator:608.v67378e9d3db_1
+pipeline-stage-view:2.41
+pipeline-utility-steps:2.20.0
+
+git:5.10.1
+github:1.46.0
+github-branch-source:1967.vdea_d580c1a_b_a_
+workflow-multibranch:821.vc3b_4ea_780798
+
+docker-workflow:634.vedc7242b_eda_7
+ssh-agent:396.vcc7d84e622ec
+timestamper:1.30
+ws-cleanup:0.49
+build-timeout:1.40
+ansicolor:536.v13fa_b_860c267
+
+slack:795.v4b_9705b_e6d47

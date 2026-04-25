@@ -1,0 +1,38 @@
+services:
+  jenkins:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DOCKER_GID: "${DOCKER_GID:-999}"
+    image: pms-order-jenkins:2.555.1
+    container_name: pms-order-jenkins
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./jcasc:/var/jenkins_home/casc_configs:ro
+    environment:
+      - JAVA_OPTS=-Djenkins.install.runSetupWizard=false -Xmx1536m
+      - CASC_JENKINS_CONFIG=/var/jenkins_home/casc_configs
+      - TZ=Asia/Seoul
+      - JENKINS_ADMIN_PASSWORD=${JENKINS_ADMIN_PASSWORD}
+      - GITHUB_PAT=${GITHUB_PAT:-}
+      - SLACK_TOKEN=${SLACK_TOKEN:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/login"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  jenkins_home:
+    driver: local

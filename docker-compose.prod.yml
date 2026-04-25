@@ -1,0 +1,7 @@
+services:
+  jenkins:
+    restart: unless-stopped
+    volumes:
+      - /home/ec2-user/.ssh/deploy-key.pem:/var/jenkins_home/.ssh/deploy-key.pem:ro
+    environment:
+      - JENKINS_URL=${JENKINS_URL:?JENKINS_URL is required in prod}
