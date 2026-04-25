@@ -121,6 +121,7 @@ cat > /etc/spot-termination-handler/env <<EOF
 HANDLER_MODE=controller
 COMPOSE_PROJECT_DIR=/opt/jenkins-stack
 COMPOSE_FILES="-f docker-compose.yml -f docker-compose.prod.yml"
+JENKINS_DATA_VOLUME=$JENKINS_DATA_VOLUME
 AWS_REGION=$AWS_REGION
 ASG_NAME=${ASG_NAME:-}
 LIFECYCLE_HOOK_NAME=${LIFECYCLE_HOOK_NAME:-}
