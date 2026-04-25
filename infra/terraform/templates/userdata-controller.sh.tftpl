@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Terraform이 Launch Template user_data로 주입.
+# 본 스크립트는 환경변수만 export 한 뒤 리포의 scripts/user-data-controller.sh를
+# 다운로드해 실행한다 (실제 부팅 로직은 그 스크립트에 있음).
+set -euxo pipefail
+
+export JENKINS_REPO_URL="${jenkins_repo_url}"
+export JENKINS_REPO_REF="${jenkins_repo_ref}"
+export JENKINS_DATA_VOLUME="${jenkins_data_volume}"
+export AWS_REGION="${aws_region}"
+export ASG_NAME="${asg_name}"
+export LIFECYCLE_HOOK_NAME="${lifecycle_hook_name}"
+
+dnf install -y curl >/dev/null
+exec bash <(curl -fsSL "${jenkins_repo_raw_url}/scripts/user-data-controller.sh")
