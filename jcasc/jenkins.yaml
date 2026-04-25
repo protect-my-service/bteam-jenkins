@@ -2,8 +2,9 @@ jenkins:
   systemMessage: "Managed by JCasC. Do not edit via UI."
   numExecutors: 0
   mode: NORMAL
-  # inbound 에이전트가 항상 50000으로 연결되도록 고정 (compose에서 이미 publish 중)
-  slaveAgentPort: 50000
+  # 에이전트는 webSocket(JEP-222)으로 ALB(443) 통해 접속하므로 JNLP TCP 리스너 비활성.
+  # -1 = disable (Jenkins core: Jenkins.java#setSlaveAgentPort 참조)
+  slaveAgentPort: -1
   securityRealm:
     local:
       allowsSignup: false
@@ -13,7 +14,7 @@ jenkins:
   authorizationStrategy:
     loggedInUsersCanDoAnything:
       allowAnonymousRead: false
-  # 스팟 EC2의 inbound agent가 controller:50000으로 연결.
+  # 스팟 EC2의 inbound agent가 webSocket(JEP-222)으로 ALB 경유 controller에 접속.
   # 노드 secret은 최초 부팅 후 Manage Nodes에서 확인하여 SSM Parameter (/jenkins/AGENT_SECRET_1)에 저장.
   nodes:
     - permanent:
@@ -25,6 +26,7 @@ jenkins:
         retentionStrategy: "always"
         launcher:
           inbound:
+            webSocket: true
             workDirSettings:
               disabled: false
               failIfWorkDirIsMissing: false
