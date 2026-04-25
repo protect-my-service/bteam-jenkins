@@ -1,0 +1,24 @@
+# 예시 변수값. 실제 사용 시 `terraform.tfvars` (gitignore됨)로 복사 후 수정.
+
+aws_region = "ap-northeast-2"
+
+# 리포 URL — user-data가 git clone / curl 로 받아옴
+jenkins_repo_url     = "https://github.com/protect-my-service/bteam-jenkins.git"
+jenkins_repo_ref     = "main"
+jenkins_repo_raw_url = "https://raw.githubusercontent.com/protect-my-service/bteam-jenkins/main"
+
+# 비용 절감용 — 학습 패턴이면 agent_min_size=0으로 두고 빌드 시에만 1로 올리기 가능
+# agent_min_size = 0
+# agent_max_size = 1
+
+# 인스턴스 타입 풀 (스팟 풀 다양성 ↑)
+# controller_instance_types = ["t3.medium", "t3a.medium", "m5.large", "m5a.large"]
+# agent_instance_types      = ["t3.medium", "t3a.medium", "c5.large", "c5a.large"]
+
+# 데이터 볼륨 / 스냅샷
+# data_volume_size_gb      = 30
+# snapshot_retention_count = 14
+# snapshot_time_utc        = "19:00"
+
+# ALB
+# alb_idle_timeout_seconds = 3600
