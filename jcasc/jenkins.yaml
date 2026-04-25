@@ -1,0 +1,43 @@
+jenkins:
+  systemMessage: "Managed by JCasC. Do not edit via UI."
+  numExecutors: 0
+  mode: NORMAL
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - usernamePassword:
+              scope: GLOBAL
+              id: "github-pat"
+              username: "x-access-token"
+              password: "${GITHUB_PAT:-}"
+              description: "GitHub PAT for SCM"
+          - string:
+              scope: GLOBAL
+              id: "slack-token"
+              secret: "${SLACK_TOKEN:-}"
+              description: "Slack bot token"
+
+unclassified:
+  location:
+    url: "${JENKINS_URL:-http://localhost:8080/}"
+    adminAddress: "dldydtjs8124@gmail.com"
+  # slackNotifier:
+  #   teamDomain: "<TBD>"
+  #   tokenCredentialId: "slack-token"
+
+tool:
+  git:
+    installations:
+      - name: Default
+        home: "/usr/bin/git"

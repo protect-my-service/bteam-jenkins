@@ -1,0 +1,13 @@
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+jenkins_home/
+
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db

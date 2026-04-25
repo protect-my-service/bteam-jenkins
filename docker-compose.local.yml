@@ -1,0 +1,5 @@
+services:
+  jenkins:
+    restart: "no"
+    environment:
+      - JENKINS_URL=${JENKINS_URL:-http://localhost:8080/}

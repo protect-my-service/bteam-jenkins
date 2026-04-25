@@ -1,0 +1,11 @@
+.git
+.github
+docs
+*.md
+LICENSE
+.env*
+docker-compose*.yml
+jenkins_home
+.idea
+.vscode
+.DS_Store
