@@ -2,6 +2,8 @@ jenkins:
   systemMessage: "Managed by JCasC. Do not edit via UI."
   numExecutors: 0
   mode: NORMAL
+  # inbound 에이전트가 항상 50000으로 연결되도록 고정 (compose에서 이미 publish 중)
+  slaveAgentPort: 50000
   securityRealm:
     local:
       allowsSignup: false
@@ -11,6 +13,22 @@ jenkins:
   authorizationStrategy:
     loggedInUsersCanDoAnything:
       allowAnonymousRead: false
+  # 스팟 EC2의 inbound agent가 controller:50000으로 연결.
+  # 노드 secret은 최초 부팅 후 Manage Nodes에서 확인하여 SSM Parameter (/jenkins/AGENT_SECRET_1)에 저장.
+  nodes:
+    - permanent:
+        name: "linux-agent-1"
+        labelString: "linux docker"
+        remoteFS: "/home/jenkins/agent"
+        numExecutors: 2
+        mode: NORMAL
+        retentionStrategy: "always"
+        launcher:
+          inbound:
+            workDirSettings:
+              disabled: false
+              failIfWorkDirIsMissing: false
+              internalDir: "remoting"
 
 credentials:
   system:

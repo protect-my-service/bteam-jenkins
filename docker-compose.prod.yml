@@ -2,6 +2,9 @@ services:
   jenkins:
     restart: unless-stopped
     volumes:
-      - /home/ec2-user/.ssh/deploy-key.pem:/var/jenkins_home/.ssh/deploy-key.pem:ro
+      # EBS-backed jenkins_home: spot 인스턴스가 교체되어도 잡 설정·빌드 이력·credentials 보존
+      - /data/jenkins:/var/jenkins_home
+      # SSM에서 user-data가 받아 EBS에 기록한 deploy key (생존 가능 위치)
+      - /data/secrets/deploy-key.pem:/var/jenkins_home/.ssh/deploy-key.pem:ro
     environment:
       - JENKINS_URL=${JENKINS_URL:?JENKINS_URL is required in prod}

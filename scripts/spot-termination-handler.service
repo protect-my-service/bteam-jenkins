@@ -1,0 +1,14 @@
+[Unit]
+Description=Spot termination handler for Jenkins (controller/agent)
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/spot-termination-handler/env
+ExecStart=/usr/local/sbin/spot-termination-handler.sh
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target
