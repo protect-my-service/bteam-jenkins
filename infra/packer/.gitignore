@@ -1,0 +1,6 @@
+# Packer cache and outputs
+.packer.d/
+packer_cache/
+manifest.json
+*.auto.pkrvars.hcl
+crash.log

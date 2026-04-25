@@ -2,9 +2,40 @@
 # Compute — Launch Template + ASG (mixed instance, Spot, capacity rebalance).
 # ─────────────────────────────────────────────────────────────────────────────
 
-# AL2023 최신 AMI (SSM 공개 파라미터)
+# AL2023 최신 AMI (SSM 공개 파라미터) — use_baked_ami=false 일 때 사용
 data "aws_ssm_parameter" "al2023_ami" {
   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+}
+
+# 사전 빌드된 controller AMI — use_baked_ami=true 일 때 사용
+data "aws_ami" "baked_controller" {
+  count       = var.use_baked_ami ? 1 : 0
+  owners      = ["self"]
+  most_recent = true
+
+  filter {
+    name   = "tag:Name"
+    values = [var.baked_ami_name_filter]
+  }
+
+  filter {
+    name   = "tag:Project"
+    values = ["bteam-jenkins"]
+  }
+
+  filter {
+    name   = "tag:Role"
+    values = ["controller"]
+  }
+
+  filter {
+    name   = "state"
+    values = ["available"]
+  }
+}
+
+locals {
+  controller_ami_id = var.use_baked_ami ? data.aws_ami.baked_controller[0].id : data.aws_ssm_parameter.al2023_ami.value
 }
 
 # ── Controller LT ─────────────────────────────────────────────────────────────
@@ -18,7 +49,7 @@ locals {
 
 resource "aws_launch_template" "controller" {
   name_prefix = "jenkins-controller-"
-  image_id    = data.aws_ssm_parameter.al2023_ami.value
+  image_id    = local.controller_ami_id
 
   iam_instance_profile {
     name = aws_iam_instance_profile.controller.name
