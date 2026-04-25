@@ -74,15 +74,32 @@ docker compose logs -f jenkins
 - GitHub 자격증명으로 Multibranch job SCM 연결 성공
 - Slack 테스트 메시지 송출 성공
 
-### 운영 배포 (EC2)
+### 운영 배포 (AWS Spot)
+
+비용 절감을 위해 **컨트롤러·에이전트 모두 Spot EC2**로 운영합니다. Spot 종료(2분 통보) 시 상태 손실을 막기 위해:
+
+- **jenkins_home은 별도 EBS gp3** 볼륨에 보관 (인스턴스와 독립, lifecycle: retain)
+- **ASG (desired=1) + capacity rebalancing**으로 신규 인스턴스가 같은 EBS를 attach해 자동 복구
+- **ALB + ACM(HTTPS) + Route53**으로 인스턴스 IP가 바뀌어도 도메인은 그대로
+- **에이전트는 별도 ASG의 Spot**, inbound JNLP로 controller:50000에 접속
 
 ```bash
+# EC2에서는 local 오버라이드 없이 prod만 사용
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
-- `.env` 대신 SSM Parameter Store → systemd `EnvironmentFile`로 주입 (상세 runbook은 별도 PR)
-- **EC2에 `docker-compose.local.yml`을 배포하지 마세요** (rsync/Ansible에서 exclude)
-- `JENKINS_URL`은 `prod.yml`에서 `${JENKINS_URL:?}` 검사로 누락 시 기동 실패
+상세 셋업 절차 (VPC/SG/EBS/SSM/IAM/Launch Template/ASG/ALB/Route53/DLM):
+👉 [`infra/aws-setup.md`](infra/aws-setup.md)
+
+핵심 파일:
+- `scripts/user-data-controller.sh` — 컨트롤러 EC2 부팅 시 실행 (EBS attach·mount → SSM 시크릿 → docker compose up)
+- `scripts/user-data-agent.sh` — 에이전트 EC2 부팅 시 실행 (SSM에서 secret → inbound agent 컨테이너 기동)
+- `scripts/spot-termination-handler.sh` (+ `.service`) — IMDS spot/instance-action 폴링 → graceful 종료
+- `docker-compose.prod.yml` — `/data/jenkins`(EBS) bind mount, `/data/secrets/deploy-key.pem` 마운트
+
+운영 시크릿은 `.env` 대신 **SSM Parameter Store (SecureString)** 에 저장 (`/jenkins/JENKINS_ADMIN_PASSWORD`, `/jenkins/GITHUB_PAT`, `/jenkins/SLACK_TOKEN`, `/jenkins/AGENT_SECRET_1` 등). user-data가 IMDSv2 토큰으로 받아 `/etc/jenkins.env`에 작성한 뒤 compose interpolation에 사용됩니다.
+
+> **EC2에 `docker-compose.local.yml`을 배포하지 마세요** (rsync/Ansible에서 exclude). `JENKINS_URL`은 `${JENKINS_URL:?}` 검사로 누락 시 기동 실패합니다.
 
 ### 환경 분리 검증
 
