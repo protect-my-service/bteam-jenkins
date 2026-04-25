@@ -27,11 +27,14 @@ AGENT_SECRET=$(aws ssm get-parameter --region "$AWS_REGION" \
   --name "$AGENT_PARAM" --with-decryption --query 'Parameter.Value' --output text)
 
 docker rm -f jenkins-agent >/dev/null 2>&1 || true
+# webSocket(JEP-222) 모드 — JENKINS_URL(=ALB 443) 위 wss 로 controller 와 단일 포트 통신.
+# 환경변수명은 jenkinsci/docker-inbound-agent README 명세 준수.
 docker run -d --name jenkins-agent --restart=unless-stopped \
   -e JENKINS_URL="$JENKINS_URL" \
   -e JENKINS_AGENT_NAME="$AGENT_NAME" \
   -e JENKINS_SECRET="$AGENT_SECRET" \
   -e JENKINS_AGENT_WORKDIR=/home/jenkins/agent \
+  -e JENKINS_WEB_SOCKET=true \
   -v /var/run/docker.sock:/var/run/docker.sock \
   jenkins/inbound-agent:latest
 
