@@ -5,11 +5,7 @@ Terraform 적용 전 리소스 관계를 빠르게 이해하기 위한 요약입
 ## 목표 구조
 
 ```
-기존 DNS
-  -> 기존 ALB listener
-  -> Jenkins host-header rule
-  -> Jenkins target group
-  -> Jenkins controller EC2 1대
+Jenkins controller EC2 1대
   -> EBS gp3 1개(/data/jenkins)
 ```
 
@@ -19,9 +15,8 @@ Terraform 적용 전 리소스 관계를 빠르게 이해하기 위한 요약입
 export AWS_REGION=ap-northeast-2
 export VPC_ID=vpc-...
 export CONTROLLER_SUBNET_ID=subnet-...
-export ALB_LISTENER_ARN=arn:aws:elasticloadbalancing:...
-export JENKINS_HOST=jenkins.example.com
-export JENKINS_URL=https://jenkins.example.com/
+# ALB는 별도 인프라에서 직접 연결합니다.
+# 연결 후 ALB URL을 알고 있다면 terraform.tfvars의 jenkins_url에 넣으세요.
 ```
 
 ## Terraform 사용
@@ -46,10 +41,11 @@ aws ssm put-parameter --name /jenkins/GITHUB_PAT             --type SecureString
 aws ssm put-parameter --name /jenkins/SLACK_TOKEN            --type SecureString --value '<slack-token>' # 선택
 ```
 
-`/jenkins/JENKINS_URL`은 Terraform이 `jenkins_url` 변수값으로 등록합니다.
+`/jenkins/JENKINS_URL`은 Terraform이 `jenkins_url` 변수값으로 등록합니다. 비워두면 `http://localhost:8080/`입니다.
 
 ## 운영 메모
 
 - 학습 목적이라 controller에서 빌드 executor를 직접 실행합니다.
 - Jenkins 데이터는 `/data/jenkins`에 mount된 EBS에 보관합니다.
+- 별도 ALB에 연결할 때는 Terraform output의 `controller_instance_id`를 target으로 등록하고 포트는 `8080`, health check path는 `/login`을 사용합니다.
 - 장애 자동복구, Spot, 별도 agent, 자동 스냅샷은 지금 구성에서 제외했습니다. 필요해지는 시점에 하나씩 추가하는 편이 관리하기 쉽습니다.

@@ -76,10 +76,10 @@ docker compose logs -f jenkins
 
 ### 운영 배포 (기존 AWS VPC)
 
-학습 목적에 맞게 기존 AWS VPC와 기존 ALB를 재사용하고, Jenkins는 **단일 EC2 컨트롤러**로 운영합니다.
+학습 목적에 맞게 기존 AWS VPC에 Jenkins **단일 EC2 컨트롤러**만 띄웁니다. ALB는 별도 인프라에서 직접 연결합니다.
 
 - **jenkins_home은 별도 EBS gp3** 볼륨에 보관
-- **기존 ALB listener**에 Jenkins host-header rule만 추가
+- **ALB / Target Group / Listener Rule**은 Terraform에서 만들지 않음
 - **controller executor**에서 빌드 실행
 - ASG, Spot, 별도 agent, DLM은 제외
 
@@ -94,7 +94,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 핵심 파일:
 - `scripts/user-data-controller.sh` — 컨트롤러 EC2 부팅 시 실행 (EBS attach·mount → SSM 시크릿 → docker compose up)
 - `docker-compose.prod.yml` — `/data/jenkins`(EBS) bind mount, `/data/secrets/deploy-key.pem` 마운트
-- `infra/terraform` — 기존 VPC/ALB에 Jenkins EC2와 target group rule 추가
+- `infra/terraform` — 기존 VPC에 Jenkins EC2와 EBS 추가
 
 운영 시크릿은 `.env` 대신 **SSM Parameter Store (SecureString)** 에 저장 (`/jenkins/JENKINS_ADMIN_PASSWORD`, `/jenkins/GITHUB_PAT`, `/jenkins/SLACK_TOKEN` 등). user-data가 IMDSv2 토큰으로 받아 `/etc/jenkins.env`에 작성한 뒤 compose interpolation에 사용됩니다.
 
