@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
-# Jenkins controller (Spot EC2) user-data
-# 가정: Amazon Linux 2023, IAM 인스턴스 프로파일에 SSM:GetParameter / EC2:AttachVolume / asg:CompleteLifecycleAction 권한
+# Jenkins controller EC2 user-data
+# 가정: Amazon Linux 2023, IAM 인스턴스 프로파일에 SSM:GetParameter / EC2:AttachVolume 권한
 # 환경변수 (Launch Template user-data 윗부분에서 주입):
 #   JENKINS_REPO_URL    - 컴포즈 자산을 받을 git URL (예: https://github.com/<org>/bteam-jenkins.git)
 #   JENKINS_REPO_REF    - branch/tag (기본: main)
 #   JENKINS_DATA_VOLUME - 영속 EBS 볼륨 ID (vol-xxxx). lifecycle: retain.
 #   AWS_REGION          - 리전 (예: ap-northeast-2)
-#   ASG_NAME            - 컨트롤러 ASG 이름 (lifecycle hook 완료 호출용)
-#   LIFECYCLE_HOOK_NAME - launching lifecycle hook 이름
 
 set -euxo pipefail
 
@@ -16,7 +14,8 @@ set -euxo pipefail
 : "${AWS_REGION:?AWS_REGION required}"
 JENKINS_REPO_REF="${JENKINS_REPO_REF:-main}"
 
-dnf install -y docker git jq awscli unzip
+dnf install -y docker git jq awscli unzip amazon-ssm-agent
+systemctl enable --now amazon-ssm-agent
 systemctl enable --now docker
 
 # Compose v2 plugin
@@ -109,32 +108,4 @@ set -a; . /etc/jenkins.env; set +a
 docker compose -f docker-compose.yml -f docker-compose.prod.yml build
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
-# ── 4. spot termination handler 설치 + 기동 ───────────────────────────────────
-install -m 0755 /opt/jenkins-stack/scripts/spot-termination-handler.sh \
-  /usr/local/sbin/spot-termination-handler.sh
-install -m 0644 /opt/jenkins-stack/scripts/spot-termination-handler.service \
-  /etc/systemd/system/spot-termination-handler.service
-
-# 컨트롤러 모드: docker compose stop 사용
-mkdir -p /etc/spot-termination-handler
-cat > /etc/spot-termination-handler/env <<EOF
-HANDLER_MODE=controller
-COMPOSE_PROJECT_DIR=/opt/jenkins-stack
-COMPOSE_FILES="-f docker-compose.yml -f docker-compose.prod.yml"
-JENKINS_DATA_VOLUME=$JENKINS_DATA_VOLUME
-AWS_REGION=$AWS_REGION
-ASG_NAME=${ASG_NAME:-}
-LIFECYCLE_HOOK_NAME=${LIFECYCLE_HOOK_NAME:-}
-EOF
-
-systemctl daemon-reload
-systemctl enable --now spot-termination-handler.service
-
-# ── 5. ASG launching lifecycle hook 완료 ─────────────────────────────────────
-if [ -n "${ASG_NAME:-}" ] && [ -n "${LIFECYCLE_HOOK_NAME:-}" ]; then
-  aws autoscaling complete-lifecycle-action --region "$AWS_REGION" \
-    --lifecycle-hook-name "$LIFECYCLE_HOOK_NAME" \
-    --auto-scaling-group-name "$ASG_NAME" \
-    --instance-id "$INSTANCE_ID" \
-    --lifecycle-action-result CONTINUE || true
-fi
+echo "Jenkins controller bootstrap completed."

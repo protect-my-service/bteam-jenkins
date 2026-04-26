@@ -1,29 +1,24 @@
-# 예시 변수값. 실제 사용 시 `terraform.tfvars` (gitignore됨)로 복사 후 수정.
+# 예시 변수값. 실제 사용 시 terraform.tfvars(gitignore됨)로 복사 후 수정.
 
-aws_region = "ap-northeast-2"
+aws_region  = "ap-northeast-2"
+aws_profile = "my-profile"
 
-# 리포 URL — user-data가 git clone / curl 로 받아옴
+# 기존 AWS 인프라
+vpc_id               = "vpc-xxxxxxxxxxxxxxxxx"
+controller_subnet_id = "subnet-xxxxxxxxxxxxxxxxx"
+
+# ALB는 별도로 연결한다. ALB DNS가 정해졌다면 여기에 넣는다.
+# 비워두면 Jenkins 내부 location.url은 http://localhost:8080/ 이다.
+# jenkins_url = "http://existing-alb-123456789.ap-northeast-2.elb.amazonaws.com/"
+
+# 리포 URL - user-data가 git clone / curl 로 받아옴
 jenkins_repo_url     = "https://github.com/protect-my-service/bteam-jenkins.git"
 jenkins_repo_ref     = "main"
 jenkins_repo_raw_url = "https://raw.githubusercontent.com/protect-my-service/bteam-jenkins/main"
 
-# 비용 절감용 — 학습 패턴이면 agent_min_size=0으로 두고 빌드 시에만 1로 올리기 가능
-# agent_min_size = 0
-# agent_max_size = 1
+# 단일 컨트롤러 EC2
+# controller_instance_type    = "t3.medium"
+# associate_public_ip_address = true
 
-# 인스턴스 타입 풀 (스팟 풀 다양성 ↑)
-# controller_instance_types = ["t3.medium", "t3a.medium", "m5.large", "m5a.large"]
-# agent_instance_types      = ["t3.medium", "t3a.medium", "c5.large", "c5a.large"]
-
-# 데이터 볼륨 / 스냅샷
-# data_volume_size_gb      = 30
-# snapshot_retention_count = 14
-# snapshot_time_utc        = "19:00"
-
-# ALB
-# alb_idle_timeout_seconds = 3600
-
-# AMI bake (infra/packer 로 사전 빌드한 경우)
-# true 로 켜면 cold start ~5분 → ~60초. 처음엔 false 로 두고, packer build 후 true 로 전환.
-# use_baked_ami         = true
-# baked_ami_name_filter = "jenkins-controller-baked"
+# Jenkins home EBS
+# data_volume_size_gb = 30

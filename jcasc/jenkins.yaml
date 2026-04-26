@@ -1,8 +1,8 @@
 jenkins:
   systemMessage: "Managed by JCasC. Do not edit via UI."
-  numExecutors: 0
+  numExecutors: 2
   mode: NORMAL
-  # 에이전트는 webSocket(JEP-222)으로 ALB(443) 통해 접속하므로 JNLP TCP 리스너 비활성.
+  # 단일 컨트롤러 구성에서는 별도 inbound agent를 쓰지 않으므로 JNLP TCP 리스너 비활성.
   # -1 = disable (Jenkins core: Jenkins.java#setSlaveAgentPort 참조)
   slaveAgentPort: -1
   securityRealm:
@@ -14,23 +14,6 @@ jenkins:
   authorizationStrategy:
     loggedInUsersCanDoAnything:
       allowAnonymousRead: false
-  # 스팟 EC2의 inbound agent가 webSocket(JEP-222)으로 ALB 경유 controller에 접속.
-  # 노드 secret은 최초 부팅 후 Manage Nodes에서 확인하여 SSM Parameter (/jenkins/AGENT_SECRET_1)에 저장.
-  nodes:
-    - permanent:
-        name: "linux-agent-1"
-        labelString: "linux docker"
-        remoteFS: "/home/jenkins/agent"
-        numExecutors: 2
-        mode: NORMAL
-        retentionStrategy: "always"
-        launcher:
-          inbound:
-            webSocket: true
-            workDirSettings:
-              disabled: false
-              failIfWorkDirIsMissing: false
-              internalDir: "remoting"
 
 credentials:
   system:

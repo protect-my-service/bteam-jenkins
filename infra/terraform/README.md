@@ -1,44 +1,41 @@
-# Terraform IaC — Jenkins on AWS Spot
+# Terraform IaC - Jenkins on Existing AWS VPC
 
-`infra/aws-setup.md` 런북의 모든 리소스를 선언적으로 옮긴 모듈입니다. CLI로 한 번 손에 익힌 후 IaC로 옮기는 흐름 그대로.
-
-DNS·HTTPS는 사용하지 않습니다 — ALB의 자동 할당 DNS를 그대로 사용해 학습 비용을 0으로. webSocket은 ws:// (HTTP)로 동작 (JEP-222가 HTTP/HTTPS 모두 지원).
+학습 목적에 맞춰 Jenkins 인스턴스만 기존 AWS VPC에 단순하게 올리는 구성입니다.
 
 ## 구조
 
 ```
-infra/terraform/
-├── versions.tf              # AWS provider ~> 6.0 고정
-├── providers.tf             # region + default_tags
-├── variables.tf             # 입력값
-├── network.tf               # 기본 VPC data + SG 3개 (50000 인바운드 없음, webSocket)
-├── storage.tf               # 영속 EBS gp3 (prevent_destroy)
-├── secrets.tf               # JENKINS_URL을 SSM에 자동 등록 (ALB DNS 파생)
-├── iam.tf                   # controller / agent / DLM 역할
-├── compute.tf               # Launch Template + ASG (mixed Spot, capacity rebalance)
-├── alb.tf                   # ALB + TG + 80 리스너 (HTTP only, idle_timeout 3600)
-├── dlm.tf                   # daily snapshot
-├── outputs.tf               # URL, ARN, next_steps 가이드
-├── templates/
-│   ├── userdata-controller.sh.tftpl  # LT user_data 템플릿
-│   └── userdata-agent.sh.tftpl
-├── terraform.tfvars.example
-└── .gitignore               # state·tfvars 제외
+Jenkins controller EC2 1대
+  -> EBS gp3 1개(/data/jenkins)
 ```
 
-## 사전 준비 (Terraform 외부)
+이 Terraform은 VPC나 ALB를 새로 만들지 않고, ALB target group/listener rule도 만들지 않습니다. 기존 VPC와 subnet ID를 입력받아 Jenkins용 EC2만 띄웁니다.
 
-1. **AWS 계정 + CLI 로그인** — `aws sts get-caller-identity` 통과
-2. **리포 접근** — `jenkins_repo_url`이 public이면 별도 처리 불필요. private이면 user-data에 토큰 주입 필요 (현재 모듈은 public 가정)
+## 남긴 것
 
-> ❌ 도메인·Route53·ACM 인증서는 **불필요**. ALB가 발급하는 DNS를 그대로 사용.
+| 리소스 | 이유 |
+|---|---|
+| EC2 1대 | Jenkins controller와 빌드를 같은 노드에서 실행해 학습 구조를 단순화 |
+| EBS 1개 | `jenkins_home` 보존 |
+| SSM Parameter Store | 관리자 비밀번호와 URL 주입 |
+| IAM Instance Profile | EC2가 SSM 값을 읽고 EBS를 attach |
+
+## 제거한 것
+
+| 제거 | 이유 |
+|---|---|
+| ALB / Target Group / Listener Rule | 별도 인프라에서 연동 |
+| ASG / Spot mixed policy | 학습 단계에서는 장애 대응보다 이해 가능한 구조가 우선 |
+| 별도 agent ASG | controller executor로 충분 |
+| DLM 자동 스냅샷 | 백업 전략은 필요해질 때 별도 추가 |
+| agent secret 부트스트랩 | agent를 만들지 않으므로 불필요 |
 
 ## 사용
 
 ```bash
 cd infra/terraform
 cp terraform.tfvars.example terraform.tfvars
-$EDITOR terraform.tfvars   # jenkins_repo_url 등 채우기
+$EDITOR terraform.tfvars
 
 terraform init
 terraform fmt -check
@@ -47,65 +44,32 @@ terraform plan -out plan.bin
 terraform apply plan.bin
 ```
 
-apply 후 `outputs.tf`의 `next_steps`를 확인 — 시크릿 SSM 등록 + 에이전트 secret 부트스트랩 절차가 출력됩니다.
-
-## 무엇이 Terraform 밖에서 관리되나
-
-| 항목 | 이유 |
-|---|---|
-| **시크릿 SSM 값** (`JENKINS_ADMIN_PASSWORD`, `GITHUB_PAT`, `SLACK_TOKEN`) | state 파일·plan 출력에 노출되지 않도록. user-data가 IMDS 토큰으로 fetch. |
-| **에이전트 secret 부트스트랩** (`AGENT_SECRET_1`) | JCasC가 노드를 만들 때 controller가 자동 생성 → UI에서 한 번 복사해 SSM에 저장 (1회성) |
-| **리포 자체** | Terraform은 인프라만 관리. compose/JCasC 파일은 git 위에서 변화 |
-
-`JENKINS_URL`은 ALB DNS에서 파생되므로 (시크릿 아님) Terraform이 SSM에 자동 등록.
-
-## AMI bake 토글 (cold start 최적화)
-
-기본값 `use_baked_ami = false` 로는 인스턴스가 매번 AL2023 + Docker + Compose + Jenkins 이미지를 처음부터 설치 → 부팅 ~5분.
-
-`infra/packer` 로 한 번 AMI 를 빌드한 뒤 `use_baked_ami = true` 로 켜면 부팅 ~60초:
+`terraform.tfvars`에는 최소한 아래 값이 필요합니다.
 
 ```hcl
-# terraform.tfvars
-use_baked_ami = true
+vpc_id               = "vpc-..."
+controller_subnet_id = "subnet-..."
+# ALB를 별도로 연결한 뒤 필요하면 지정.
+# jenkins_url = "http://existing-alb-123456789.ap-northeast-2.elb.amazonaws.com/"
 ```
 
-baked AMI 가 없을 때 `true` 로 두면 plan 에서 data source 매칭 0건으로 실패하므로, 먼저 `cd ../packer && packer build jenkins-controller.pkr.hcl` 으로 빌드.
+## Terraform 밖에서 관리하는 값
 
-## 학습용 비용 토글
-
-학습 안 할 때 비용 줄이려면:
+시크릿 값은 state 파일에 남기지 않기 위해 Terraform 밖에서 등록합니다.
 
 ```bash
-# 완전 멈춤 (EBS만 살아 있음 → 월 ~$2.4)
-terraform destroy
-
-# 다시 시작
-terraform apply
-
-# 또는 간단히 ASG만 0으로 (ALB·EBS 유지)
-aws autoscaling set-desired-capacity --auto-scaling-group-name $(terraform output -raw controller_asg_name) --desired-capacity 0
-aws autoscaling set-desired-capacity --auto-scaling-group-name $(terraform output -raw agent_asg_name)      --desired-capacity 0
+aws ssm put-parameter --name /jenkins/JENKINS_ADMIN_PASSWORD --type SecureString --value '<강력한-비번>'
+aws ssm put-parameter --name /jenkins/GITHUB_PAT             --type SecureString --value '<github-pat>'   # 선택
+aws ssm put-parameter --name /jenkins/SLACK_TOKEN            --type SecureString --value '<slack-token>' # 선택
 ```
 
-> EBS는 `prevent_destroy = true`라 `terraform destroy`는 그 자원에서 멈춥니다. 데이터 보존 목적이며, 진짜 지우려면 lifecycle 블록을 일시 해제해야 함.
+`/jenkins/JENKINS_URL`은 `jenkins_url`을 지정하면 그 값으로, 생략하면 `http://localhost:8080/`으로 Terraform이 등록합니다. ALB 연결 후 실제 ALB URL로 갱신하는 것을 권장합니다.
 
-## 변경 시 주의
+## 주의
 
-- `aws_ebs_volume.jenkins_data`는 `lifecycle.prevent_destroy = true`. destroy 하려면 lifecycle 블록을 풀거나 `terraform state rm` 후 수동 삭제.
-- `controller_subnet_id` 변경은 EBS와의 AZ mismatch를 유발할 수 있음. 변경 전 EBS 마이그레이션 필요.
-- agent_min_size를 0으로 두면 빌드 처리 능력은 0이지만 Controller·UI는 정상.
-
-## ⚠️ HTTPS·DNS가 필요해질 때
-
-지금은 ALB DNS + HTTP만. 다음 경우엔 HTTPS·DNS 추가가 필요합니다:
-- GitHub Webhook을 받아 자동 빌드 (HTTPS 필수)
-- 외부 사용자에게 안정 도메인 제공
-- 브라우저의 Mixed Content 경고 회피
-
-추가 시 필요한 것: ACM 인증서 발급 → `aws_acm_certificate` data source → 443 HTTPS 리스너 + 80→443 redirect → Route53 alias record. 한 PR로 추가 가능.
-
-## 관련 문서
-
-- 토폴로지·비용·배경: `infra/aws-setup.md` (CLI 런북, Terraform과 동일 결과)
-- 보안·트레이드오프 결정 기록: `docs/adr/0001-ci-tool-selection.md`, PR #3·#4 설명
+- `controller_subnet_id`의 AZ에 EBS가 생성됩니다. 다른 subnet으로 바꾸면 EBS 마이그레이션을 먼저 고려해야 합니다.
+- `aws_ebs_volume.jenkins_data`는 `prevent_destroy = true`입니다. Jenkins 데이터를 실수로 삭제하지 않기 위한 설정입니다.
+- SSM Session Manager와 user-data 다운로드가 동작하려면 인스턴스가 AWS SSM, GitHub, Docker Compose 다운로드 URL로 HTTPS 아웃바운드가 가능해야 합니다. public subnet에서는 기본값 `associate_public_ip_address = true`를 사용하세요. private subnet이면 NAT Gateway 또는 SSM VPC Endpoint가 필요합니다.
+- user-data에서 `amazon-ssm-agent`를 설치하고 기동합니다. SSM 접속이 안 되면 먼저 EC2가 `describe-instance-information`에 등록되는지 확인하세요.
+- controller Security Group은 기존 VPC CIDR에서 8080 접근을 허용합니다. 더 엄격하게 하려면 기존 ALB Security Group ID를 변수로 받아 source SG 방식으로 바꾸면 됩니다.
+- 별도 ALB에 붙일 때는 target을 `controller_instance_id`, 포트 `8080`, health check path `/login`으로 잡으면 됩니다.
