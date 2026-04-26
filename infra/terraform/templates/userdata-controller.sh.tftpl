@@ -8,8 +8,5 @@ export JENKINS_REPO_URL="${jenkins_repo_url}"
 export JENKINS_REPO_REF="${jenkins_repo_ref}"
 export JENKINS_DATA_VOLUME="${jenkins_data_volume}"
 export AWS_REGION="${aws_region}"
-export ASG_NAME="${asg_name}"
-export LIFECYCLE_HOOK_NAME="${lifecycle_hook_name}"
 
-dnf install -y curl >/dev/null
 exec bash <(curl -fsSL "${jenkins_repo_raw_url}/scripts/user-data-controller.sh")
