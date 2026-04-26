@@ -64,6 +64,18 @@ variable "snapshot_time_utc" {
   default     = "19:00"
 }
 
+variable "use_baked_ami" {
+  description = "true: infra/packer로 사전 빌드한 controller AMI 사용 (cold start ~5분 → ~60초). false: AL2023 latest를 받아 user-data에서 모두 설치."
+  type        = bool
+  default     = false
+}
+
+variable "baked_ami_name_filter" {
+  description = "use_baked_ami=true 일 때 controller AMI 선택 필터 (Name 태그). Packer가 jenkins-controller-baked 로 태그함."
+  type        = string
+  default     = "jenkins-controller-baked"
+}
+
 variable "alb_idle_timeout_seconds" {
   description = "ALB idle timeout. webSocket(JEP-222) 연결 유지를 위해 default 60s에서 상향. 범위 1-4000."
   type        = number
