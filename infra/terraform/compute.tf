@@ -38,4 +38,6 @@ resource "aws_instance" "controller" {
     jenkins_data_volume  = aws_ebs_volume.jenkins_data.id
     aws_region           = var.aws_region
   })
+
+  user_data_replace_on_change = true
 }
