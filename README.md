@@ -158,3 +158,80 @@ docker compose config
 | Docker 소켓 권한 거부 (Linux) | 호스트 Docker GID 불일치 | `.env`의 `DOCKER_GID` 재확인 → 재빌드 |
 | Setup Wizard 화면이 뜸 | JCasC 로딩 전 진입 | `runSetupWizard=false` JAVA_OPTS 확인, JCasC 에러 로그 점검 |
 | 전체 초기화 필요 | 테스트 중 상태 망가짐 | `docker compose down -v` (주의: `jenkins_home` 볼륨 전체 삭제) |
+
+---
+
+## App rolling deploy pipeline (pms-order-bteam)
+
+`pms-order-bteam` 레포는 EC2 1대 안에서의 nginx Blue/Green 자산까지를 책임지고, **2대 EC2 ALB 롤링 + 인스턴스 내부 Blue/Green** 오케스트레이션은 본 레포의 `Jenkinsfile`이 담당합니다. 호출 계약은 `pms-order-bteam` 의 README "오케스트레이터 인터페이스" 섹션을 그대로 따릅니다.
+
+### 토폴로지
+
+```
+GitHub webhook (or 수동) ─► Jenkins controller ─► AWS SSM Run Command ─► 앱 EC2 #1
+                                  │                                             └─ deploy.sh (blue↔green)
+                                  ├──── ALB deregister/register ────────────────► 앱 EC2 #2
+                                  └──── ECR push (새 이미지)                         └─ deploy.sh (blue↔green)
+```
+
+### 사용법
+
+| 파라미터 | 기본값 | 설명 |
+|---|---|---|
+| `APP_REF` | `main` | 배포할 `pms-order-bteam` git ref |
+| `IMAGE_TAG` | (자동) | 비우면 `${shortSha}-b${BUILD_NUMBER}` 으로 자동 생성 |
+| `SPRING_PROFILES_ACTIVE` | `prod` | 앱 Spring profile |
+| `SKIP_BUILD` | `false` | 기존 IMAGE_TAG 재배포(롤백 등) 시 `true` |
+| `DRY_RUN` | `false` | 모든 mutation을 echo만 함 |
+
+GitHub webhook: `pms-order-bteam` 레포 Settings → Webhooks → `${JENKINS_URL}/github-webhook/` 등록.
+
+### 사전 조건
+
+**1. SSM Parameter Store 키 등록** (한 번)
+
+```bash
+aws ssm put-parameter --name /pms-order/prod/app/INSTANCE_IDS --type StringList \
+  --value 'i-aaaaaaaaaaaaaaaaa,i-bbbbbbbbbbbbbbbbb'
+aws ssm put-parameter --name /pms-order/prod/app/TG_ARN --type String \
+  --value 'arn:aws:elasticloadbalancing:ap-northeast-2:<acct>:targetgroup/<name>/<id>'
+aws ssm put-parameter --name /pms-order/prod/app/ECR_REPO --type String \
+  --value '<acct>.dkr.ecr.ap-northeast-2.amazonaws.com/pms-order-bteam'
+aws ssm put-parameter --name /pms-order/prod/app/AWS_REGION  --type String --value 'ap-northeast-2'
+aws ssm put-parameter --name /pms-order/prod/app/HEALTH_PATH --type String --value '/actuator/health/readiness'
+```
+
+**2. 컨트롤러 측** (본 PR로 동시 적용)
+
+- `infra/terraform` apply → `controller_inline` IAM 정책에 SSM/ELBv2/ECR/Logs 권한 추가
+- `docker compose build jenkins && up -d --force-recreate` → 컨테이너에 awscli v2 설치
+- 검증: `docker exec pms-order-jenkins aws sts get-caller-identity` → controller IAM role ARN
+
+**3. 앱 EC2 측** (본 레포 범위 외, 운영자 작성)
+
+- Instance profile에 `AmazonSSMManagedInstanceCore` + ECR pull(`AmazonEC2ContainerRegistryReadOnly`)
+- 인스턴스 태그 `Project=pms-order` (IAM `ssm:SendCommand` condition 통과 조건)
+- ECR pull용 outbound 443 (NAT GW 또는 VPC endpoint)
+- `~/app/.env` 사전 작성 (`pms-order-bteam` 의 `.env.example` 참고). 누락 시 deploy.sh가 fast-fail.
+- ECR 레포 `pms-order-bteam` 사전 생성
+
+### 동작 흐름 (한 사이클)
+
+각 인스턴스에 대해 **순차** 실행:
+
+1. ALB TG에서 deregister → drain 대기 (deregistration_delay 30~60s)
+2. SSM Run Command로 자산 동기화 (Jenkins workspace의 nginx/scripts/compose를 base64로 인라인 전송) → `deploy.sh` 실행 → stdout `OLD_COLOR=` 마커 파싱
+3. ALB TG에 register → `target-in-service` 대기
+4. healthy 실패 시: SSM으로 nginx upstream을 이전 색상으로 즉시 롤백 + 1회 재시도. 두 번째도 실패하면 abort
+5. `stop-old-color.sh <old>` 실행 (실패해도 다음 인스턴스로 진행 — 새 색상은 이미 서비스 중)
+
+한 인스턴스 실패 시 즉시 abort → 나머지 인스턴스 미접촉 (ALB는 살아있는 노드로 100% 트래픽).
+
+### 롤백
+
+직전 정상 IMAGE_TAG로 `SKIP_BUILD=true` + `IMAGE_TAG=<직전값>` 으로 재실행.
+
+### 트리거 동시성
+
+- `disableConcurrentBuilds()`: 동시 두 빌드 절대 안 돌아감
+- webhook + 수동 동시 발생 → **큐잉**됨 (drop 아님). 운영자가 의도와 다르면 큐에서 cancel
