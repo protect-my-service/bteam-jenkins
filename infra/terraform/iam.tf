@@ -114,7 +114,8 @@ data "aws_iam_policy_document" "controller_inline" {
       "ecr:BatchGetImage",
       "ecr:DescribeRepositories",
     ]
-    resources = ["arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/pms-order-*"]
+    # 실제 ECR repo 명: b-team/pms-order. b-team 네임스페이스 하위 레포 전체 허용.
+    resources = ["arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/b-team/*"]
   }
 
   statement {
