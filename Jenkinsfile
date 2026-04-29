@@ -359,7 +359,10 @@ def parseOldColor(String stdout) {
 // 전체 stdout/stderr는 CloudWatch Logs에도 동시 송출 (SSM_LOG_GROUP).
 def runOnInstance(String instanceId, String scriptContent, int timeoutSec) {
     def b64Script = java.util.Base64.encoder.encodeToString(scriptContent.bytes)
-    def wrapper = "bash -c 'echo ${b64Script} | base64 -d | bash'"
+    // SSM agent는 환경변수가 거의 비어있는 셸을 띄운다. set -u가 켜진 deploy 스크립트에서
+    // \$HOME 참조 시 unbound variable로 죽으므로 wrapper 단계에서 HOME을 한 번 채워둔다.
+    // AL2023 기본 ec2-user 가정 (~/app 자산 배치 계약은 이 사용자 home 기준).
+    def wrapper = "bash -c 'export HOME=\"\${HOME:-/home/ec2-user}\"; echo ${b64Script} | base64 -d | bash'"
 
     def paramsJson = "params-${instanceId}-${env.BUILD_NUMBER}.json"
     writeJSON file: paramsJson, json: [commands: [wrapper]]
