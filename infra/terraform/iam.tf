@@ -52,13 +52,20 @@ data "aws_iam_policy_document" "controller_inline" {
     resources = ["arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/pms-order/*"]
   }
 
+  # SendCommand: instance와 document를 분리한다.
+  # condition은 statement 전체에 적용되므로, AWS 관리 문서(AWS-RunShellScript)에까지
+  # ssm:resourceTag/Project 태그를 요구하면 condition fail로 전체가 deny된다.
+  # → instance 리소스에만 Project=pms-order 태그 조건을 걸고, 문서는 무조건 허용.
   statement {
-    effect  = "Allow"
-    actions = ["ssm:SendCommand"]
-    resources = [
-      "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/*",
-      "arn:aws:ssm:${var.aws_region}::document/AWS-RunShellScript",
-    ]
+    effect    = "Allow"
+    actions   = ["ssm:SendCommand"]
+    resources = ["arn:aws:ssm:${var.aws_region}::document/AWS-RunShellScript"]
+  }
+
+  statement {
+    effect    = "Allow"
+    actions   = ["ssm:SendCommand"]
+    resources = ["arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/*"]
     # 인스턴스는 태그 Project=pms-order 가 붙은 것에만 명령 가능. 운영 안전장치.
     condition {
       test     = "StringEquals"
