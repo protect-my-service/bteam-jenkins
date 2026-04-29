@@ -223,14 +223,19 @@ def deployOne(String instanceId, String deployScript, String bundleB64) {
             sh "aws elbv2 wait target-deregistered --target-group-arn ${env.TG_ARN} --targets Id=${instanceId}"
         }
 
-        // 3. SSM으로 deploy 실행
+        // 3. SSM으로 deploy 실행.
+        //   배포 전에 현재 active color 를 결정한다 (nginx upstream → state 파일 → docker ps
+        //   순). 이 색이 swap 후 "old" 가 된다. 이전에는 deploy.sh stdout 의 OLD_COLOR=
+        //   마커를 파싱했으나 docker compose 서브프로세스와의 fd 상호작용으로 마커가 SSM
+        //   stdout 에 도달하지 않는 race 가 재발해 (build #18~#22) 마커 의존을 제거.
         def oldColor
         if (params.DRY_RUN) {
             echo "[DRY_RUN] would SSM run deploy on ${instanceId}"
             oldColor = 'blue'
         } else {
-            def out = runOnInstance(instanceId, deployScript, 600)
-            oldColor = parseOldColor(out)
+            oldColor = detectActiveColor(instanceId)
+            echo "[${instanceId}] pre-deploy active = ${oldColor} (swap 후 이게 old)"
+            runOnInstance(instanceId, deployScript, 600)
             echo "[${instanceId}] deploy 성공. old color = ${oldColor}"
         }
 
@@ -348,19 +353,12 @@ export SPRING_PROFILES_ACTIVE="${params.SPRING_PROFILES_ACTIVE}"
 aws ecr get-login-password --region "${env.AWS_DEFAULT_REGION}" \\
   | docker login --username AWS --password-stdin "\${ECR_REPO%%/*}"
 
-# deploy.sh 실행: stdout 은 tee 로 SSM stdout 에 즉시 passthrough + file 보존.
-# RC 는 PIPESTATUS[0] 로 캡처. stderr 는 SSM stderr 로 그대로 통과.
-#
-# 이전 패턴은 OLD_RAW=\$(bash deploy.sh) 로 stdout 캡처 후 wrapper 가 별도 echo 로
-# OLD_COLOR= 마커 출력했음. build #18~#20 에서 wrapper 마지막 echo 가 SSM stdout 에
-# 도달하지 않는 사례 재현됨 (stdout 길이가 정확히 \"Login Succeeded\\n\" 16바이트로
-# 멈춤). docker compose 서브프로세스와의 fd 상호작용 또는 SSM agent buffering 으로
-# 추정되나 minimal reproducer 로는 재현 안 됨. capture 자체를 우회하면 안전:
-# tee 가 sequential 이라 race 없음, 마지막 OLD_COLOR= echo 도 동일 fd 흐름이라
-# stdout 누적 보장.
+# deploy.sh 실행. wrapper 는 OLD_COLOR= 마커를 출력하지 않는다.
+# old color 는 Jenkins 가 deploy 전에 detectActiveColor() 로 따로 알아둔다.
+# 실패 시 진단 덤프만 stderr 로 남김.
 set +e
-bash \$HOME/app/scripts/deploy.sh "${env.HEALTH_PATH}" | tee /tmp/deploy.out
-RC=\${PIPESTATUS[0]}
+bash \$HOME/app/scripts/deploy.sh "${env.HEALTH_PATH}"
+RC=\$?
 set -e
 if [[ \$RC -ne 0 ]]; then
   {
@@ -375,9 +373,6 @@ if [[ \$RC -ne 0 ]]; then
   } >&2
   exit \$RC
 fi
-# deploy.sh stdout 마지막 줄 = old color (echo "\$active"). file 에서 안전하게 추출.
-OLD=\$(tail -n1 /tmp/deploy.out)
-echo "OLD_COLOR=\${OLD}"
 """
 }
 
@@ -393,12 +388,57 @@ echo "ROLLBACK_TO=${oldColor}"
 """
 }
 
-def parseOldColor(String stdout) {
-    def m = (stdout =~ /(?m)^OLD_COLOR=(blue|green)$/)
+// 인스턴스에서 현재 active color 를 알아낸다. 우선순위:
+//   1) nginx upstream.conf (authoritative — 실제 트래픽이 가는 곳)
+//   2) state 파일 (deploy.sh 가 swap 직후 기록)
+//   3) docker ps (single 컨테이너만 떠있을 때)
+// Blue/green 둘 다 떠있는 중간 상태(swap 직후 ~ stop-old-color 직전)도 nginx 가
+// authoritative 하므로 정확히 판별한다. SSM stdout 출력은 'ACTIVE=<color>' 한 줄로
+// 최소화해 docker compose race 우려를 차단.
+def detectActiveColor(String instanceId) {
+    def script = '''set -euo pipefail
+export HOME="${HOME:-/home/ec2-user}"
+APP_DIR="$HOME/app"
+UPSTREAM_FILE="$APP_DIR/nginx/conf.d/upstream.conf"
+STATE_FILE="$APP_DIR/state/active_color"
+
+color=""
+# 1) nginx upstream
+if grep -qE '^[[:space:]]*server[[:space:]]+blue:' "$UPSTREAM_FILE" 2>/dev/null; then
+    color=blue
+elif grep -qE '^[[:space:]]*server[[:space:]]+green:' "$UPSTREAM_FILE" 2>/dev/null; then
+    color=green
+# 2) state 파일
+elif [[ -f "$STATE_FILE" ]]; then
+    color=$(tr -d '[:space:]' < "$STATE_FILE")
+# 3) docker ps — 단일 컨테이너만 떠있을 때 추론
+else
+    blue_up=""; green_up=""
+    docker ps --filter name=^pms-blue$  --filter status=running -q 2>/dev/null | grep -q . && blue_up=yes
+    docker ps --filter name=^pms-green$ --filter status=running -q 2>/dev/null | grep -q . && green_up=yes
+    if [[ "$blue_up" == yes && -z "$green_up" ]]; then
+        color=blue
+    elif [[ "$green_up" == yes && -z "$blue_up" ]]; then
+        color=green
+    elif [[ "$blue_up" == yes && "$green_up" == yes ]]; then
+        echo "DETECT_ERROR: blue/green 둘 다 떠있는데 nginx upstream/state 모두 없음 (정상 상태 아님)" >&2
+        exit 1
+    else
+        echo "DETECT_ERROR: 떠있는 컨테이너도 없고 nginx upstream/state 도 없음 (초기 미배포 상태)" >&2
+        exit 1
+    fi
+fi
+
+if [[ "$color" != "blue" && "$color" != "green" ]]; then
+    echo "DETECT_ERROR: 잘못된 color 값 \\"$color\\"" >&2
+    exit 1
+fi
+echo "ACTIVE=$color"
+'''
+    def out = runOnInstance(instanceId, script, 60)
+    def m = (out =~ /(?m)^ACTIVE=(blue|green)$/)
     if (!m.find()) {
-        echo "----- SSM stdout (truncated to last 4KB) -----"
-        echo stdout.length() > 4000 ? stdout[-4000..-1] : stdout
-        error "OLD_COLOR= 마커를 찾지 못함. 전체 로그는 CloudWatch ${env.SSM_LOG_GROUP} 참조."
+        error "[${instanceId}] active color 감지 실패. SSM stdout=\n${out}"
     }
     return m.group(1)
 }
