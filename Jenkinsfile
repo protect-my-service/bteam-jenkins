@@ -304,7 +304,10 @@ def buildAssetBundle() {
 def buildDeployScript(String bundleB64) {
     return """#!/usr/bin/env bash
 set -euo pipefail
-exec > >(tee /tmp/deploy.\$\$.log) 2>&1
+# stdout/stderr 는 SSM 가 자동으로 capture (StandardOutputContent / StandardErrorContent)
+# 하고 --cloud-watch-output-config 로 CloudWatch (\${SSM_LOG_GROUP}) 에도 동기 송출하므로
+# 별도 tee 불필요. process substitution + tee 는 wrapper 종료 직전 race 로 마지막 stdout
+# 줄(예: OLD_COLOR= 마커)이 SSM StandardOutputContent 에 못 실리는 사례가 발생함.
 
 [[ -f \$HOME/app/.env ]] || { echo "FATAL: ~/app/.env 가 없음. 운영자가 사전 작성 필요."; exit 2; }
 
