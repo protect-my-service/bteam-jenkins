@@ -334,8 +334,27 @@ export SPRING_PROFILES_ACTIVE="${params.SPRING_PROFILES_ACTIVE}"
 aws ecr get-login-password --region "${env.AWS_DEFAULT_REGION}" \\
   | docker login --username AWS --password-stdin "\${ECR_REPO%%/*}"
 
-# deploy.sh stdout 마지막 줄 = old color. 트렁케이션 안전 위해 OLD_COLOR= 마커 추가 출력.
-OLD=\$(bash \$HOME/app/scripts/deploy.sh "${env.HEALTH_PATH}" | tail -n1)
+# deploy.sh 실행: stdout (마지막 줄 = active color)만 캡처, stderr 는 SSM stderr 로 그대로 통과.
+# 실패 시 컨테이너 상태와 로그를 stderr 로 덤프해 Jenkins 콘솔에서 원인 즉시 파악 가능.
+set +e
+OLD_RAW=\$(bash \$HOME/app/scripts/deploy.sh "${env.HEALTH_PATH}")
+RC=\$?
+set -e
+if [[ \$RC -ne 0 ]]; then
+  {
+    echo "===== deploy.sh exit \$RC. 진단 덤프 시작 ====="
+    echo "----- docker compose ps -a -----"
+    (cd \$HOME/app && docker compose ps -a) 2>&1 || true
+    echo "----- docker compose logs --tail=200 (blue, green) -----"
+    (cd \$HOME/app && docker compose logs --tail=200 blue green) 2>&1 || true
+    echo "----- docker compose logs --tail=50 (nginx) -----"
+    (cd \$HOME/app && docker compose logs --tail=50 nginx) 2>&1 || true
+    echo "===== 진단 덤프 끝. 전체 로그는 CloudWatch /ssm/pms-order-deploy 참조. ====="
+  } >&2
+  exit \$RC
+fi
+# stdout 마지막 줄 = old color. 트렁케이션 안전 위해 OLD_COLOR= 마커 추가 출력.
+OLD=\$(echo "\$OLD_RAW" | tail -n1)
 echo "OLD_COLOR=\${OLD}"
 """
 }
