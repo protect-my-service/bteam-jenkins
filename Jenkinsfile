@@ -348,11 +348,19 @@ export SPRING_PROFILES_ACTIVE="${params.SPRING_PROFILES_ACTIVE}"
 aws ecr get-login-password --region "${env.AWS_DEFAULT_REGION}" \\
   | docker login --username AWS --password-stdin "\${ECR_REPO%%/*}"
 
-# deploy.sh 실행: stdout (마지막 줄 = active color)만 캡처, stderr 는 SSM stderr 로 그대로 통과.
-# 실패 시 컨테이너 상태와 로그를 stderr 로 덤프해 Jenkins 콘솔에서 원인 즉시 파악 가능.
+# deploy.sh 실행: stdout 은 tee 로 SSM stdout 에 즉시 passthrough + file 보존.
+# RC 는 PIPESTATUS[0] 로 캡처. stderr 는 SSM stderr 로 그대로 통과.
+#
+# 이전 패턴은 OLD_RAW=\$(bash deploy.sh) 로 stdout 캡처 후 wrapper 가 별도 echo 로
+# OLD_COLOR= 마커 출력했음. build #18~#20 에서 wrapper 마지막 echo 가 SSM stdout 에
+# 도달하지 않는 사례 재현됨 (stdout 길이가 정확히 \"Login Succeeded\\n\" 16바이트로
+# 멈춤). docker compose 서브프로세스와의 fd 상호작용 또는 SSM agent buffering 으로
+# 추정되나 minimal reproducer 로는 재현 안 됨. capture 자체를 우회하면 안전:
+# tee 가 sequential 이라 race 없음, 마지막 OLD_COLOR= echo 도 동일 fd 흐름이라
+# stdout 누적 보장.
 set +e
-OLD_RAW=\$(bash \$HOME/app/scripts/deploy.sh "${env.HEALTH_PATH}")
-RC=\$?
+bash \$HOME/app/scripts/deploy.sh "${env.HEALTH_PATH}" | tee /tmp/deploy.out
+RC=\${PIPESTATUS[0]}
 set -e
 if [[ \$RC -ne 0 ]]; then
   {
@@ -367,8 +375,8 @@ if [[ \$RC -ne 0 ]]; then
   } >&2
   exit \$RC
 fi
-# stdout 마지막 줄 = old color. 트렁케이션 안전 위해 OLD_COLOR= 마커 추가 출력.
-OLD=\$(echo "\$OLD_RAW" | tail -n1)
+# deploy.sh stdout 마지막 줄 = old color (echo "\$active"). file 에서 안전하게 추출.
+OLD=\$(tail -n1 /tmp/deploy.out)
 echo "OLD_COLOR=\${OLD}"
 """
 }
