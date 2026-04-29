@@ -358,7 +358,7 @@ def parseOldColor(String stdout) {
 // scriptContent는 base64 인코딩되어 commands 인라인으로 전송된다.
 // 전체 stdout/stderr는 CloudWatch Logs에도 동시 송출 (SSM_LOG_GROUP).
 def runOnInstance(String instanceId, String scriptContent, int timeoutSec) {
-    def b64Script = scriptContent.bytes.encodeBase64().toString()
+    def b64Script = java.util.Base64.encoder.encodeToString(scriptContent.bytes)
     def wrapper = "bash -c 'echo ${b64Script} | base64 -d | bash'"
 
     def paramsJson = "params-${instanceId}-${env.BUILD_NUMBER}.json"
