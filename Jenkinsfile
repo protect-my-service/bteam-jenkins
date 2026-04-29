@@ -308,6 +308,14 @@ exec > >(tee /tmp/deploy.\$\$.log) 2>&1
 
 [[ -f \$HOME/app/.env ]] || { echo "FATAL: ~/app/.env 가 없음. 운영자가 사전 작성 필요."; exit 2; }
 
+# 사전 점검: docker compose 플러그인 부재 시 deploy.sh 안에서는 'unknown shorthand flag: -f'
+# 같은 모호한 에러로 나타남. 여기서 fail-fast 하고 명확한 안내를 남긴다.
+if ! docker compose version >/dev/null 2>&1; then
+  echo "FATAL: 'docker compose' 플러그인 없음. AL2023: 'sudo dnf install -y docker-compose-plugin'"
+  echo "또는: curl -fsSL https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-\$(uname -m) -o /usr/libexec/docker/cli-plugins/docker-compose && chmod +x /usr/libexec/docker/cli-plugins/docker-compose"
+  exit 3
+fi
+
 mkdir -p \$HOME/app
 cd \$HOME/app
 
