@@ -322,12 +322,23 @@ fi
 mkdir -p \$HOME/app
 cd \$HOME/app
 
-# 자산 배치 (기존 nginx/scripts/docker-compose.yml 덮어쓰기). state/ 는 보존.
+# 자산 배치. nginx 디렉토리 inode 를 보존해 nginx 컨테이너의 bind mount
+# (./nginx/conf.d:/etc/nginx/conf.d) 가 dangling 되지 않게 한다.
+#   기존 방식: rm -rf nginx scripts → tar xzf
+#     문제 — rm -rf 로 디렉토리 inode 가 파괴되고 tar 가 새 inode 로 디렉토리를
+#     만든다. nginx 컨테이너는 deploy 동안 재시작되지 않아 옛 inode 를 그대로
+#     mount 한 채로 남고, host 의 새 디렉토리 변경이 보이지 않는다.
+#     swap 시 nginx -s reload 가 빈 conf.d 를 로드 → 모든 요청 RST → ALB unhealthy.
+#   현재 방식: 디렉토리 자체는 살려두고 staging + rsync 로 내용만 동기화.
+#     rsync --delete 로 새 bundle 에 없는 파일도 정리하면서 디렉토리 inode 는 유지.
 echo "${bundleB64}" | base64 -d > /tmp/bundle.tgz
-rm -rf nginx scripts docker-compose.yml
-tar -xzf /tmp/bundle.tgz
-mv -f docker-compose.deploy.yml docker-compose.yml
-rm -f /tmp/bundle.tgz
+rm -rf /tmp/bundle-extract
+mkdir -p /tmp/bundle-extract nginx scripts
+tar -xzf /tmp/bundle.tgz -C /tmp/bundle-extract
+rsync -a --delete /tmp/bundle-extract/nginx/   nginx/
+rsync -a --delete /tmp/bundle-extract/scripts/ scripts/
+mv -f /tmp/bundle-extract/docker-compose.deploy.yml docker-compose.yml
+rm -rf /tmp/bundle-extract /tmp/bundle.tgz
 
 export ECR_REPO="${env.ECR_REPO}"
 export IMAGE_TAG="${env.RESOLVED_IMAGE_TAG}"
