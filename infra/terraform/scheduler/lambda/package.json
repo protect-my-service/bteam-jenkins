@@ -1,0 +1,7 @@
+{
+  "name": "bteam-scheduler-lambda",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tag-based stop/start of EC2 and RDS. AWS SDK v3 is bundled into the nodejs22.x runtime, so no node_modules needed."
+}
