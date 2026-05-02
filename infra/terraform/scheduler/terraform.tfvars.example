@@ -1,0 +1,13 @@
+aws_region  = "us-east-1"
+aws_profile = "my-profile"
+
+# 대상 태그 (Lambda 환경변수로 주입)
+tag_key   = "AutoStop"
+tag_value = "true"
+
+# KST 02:00 정지 (UTC 17:00 전일)
+stop_schedule_expression = "cron(0 17 * * ? *)"
+
+# 자동 기동을 끄고 싶으면 false로 둔다. 학습 환경에서는 필요할 때만 수동 invoke 권장.
+enable_auto_start         = false
+start_schedule_expression = "cron(0 0 * * ? *)" # KST 09:00 = UTC 00:00
