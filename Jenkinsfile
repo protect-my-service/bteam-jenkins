@@ -22,10 +22,6 @@ pipeline {
         buildDiscarder(logRotator(numToKeepStr: '30'))
     }
 
-    triggers {
-        githubPush()
-    }
-
     parameters {
         string(name: 'APP_REF',
                defaultValue: 'main',
@@ -500,9 +496,17 @@ def runOnInstance(String instanceId, String scriptContent, int timeoutSec) {
 }
 
 def notifySlack(String status) {
-    def msg = "[${status}] ${env.JOB_NAME} #${env.BUILD_NUMBER} — APP_REF=${params.APP_REF}, IMAGE_TAG=${env.RESOLVED_IMAGE_TAG ?: '(unresolved)'}\n${env.BUILD_URL}"
+    def emoji = status == 'SUCCESS' ? ':white_check_mark:' : (status == 'ABORTED' ? ':warning:' : ':x:')
+    def text  = "${emoji} *${status}* — `${env.JOB_NAME}` #${env.BUILD_NUMBER}\n" +
+                "APP_REF: `${params.APP_REF}`  IMAGE_TAG: `${env.RESOLVED_IMAGE_TAG ?: '(unresolved)'}`\n" +
+                "<${env.BUILD_URL}|Open build>"
     try {
-        slackSend(color: status == 'SUCCESS' ? 'good' : (status == 'ABORTED' ? 'warning' : 'danger'), message: msg)
+        withCredentials([string(credentialsId: 'slack-webhook-url', variable: 'SLACK_WEBHOOK_URL')]) {
+            def payload = groovy.json.JsonOutput.toJson([text: text])
+            writeFile file: '.slack-payload.json', text: payload
+            sh(label: 'slack notify',
+               script: 'curl -sS -X POST -H "Content-Type: application/json" --data @.slack-payload.json "$SLACK_WEBHOOK_URL"')
+        }
     } catch (Throwable t) {
         echo "slack notify skipped: ${t.message}"
     }
